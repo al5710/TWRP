@@ -1,226 +1,80 @@
 name: Build PBRP - Redmi Note 15 4G (spinel)
 
 on:
-workflow_dispatch:
-push:
-branches:
-- main
+  workflow_dispatch:
+  push:
+    branches:
+      - main
 
-jobs:
-build:
-name: Build PBRP
-runs-on: ubuntu-22.04
-
-```
 env:
   DEVICE: spinel
+  PBRP_BRANCH: android-12.1
   USE_CCACHE: 1
 
-steps:
+jobs:
+  build:
+    name: Build PBRP vendor_boot
+    runs-on: ubuntu-22.04
 
-  - name: Checkout PBRP
-    uses: actions/checkout@v4
-    with:
-      path: pbrp
-      submodules: recursive
-      fetch-depth: 1
+    steps:
+      - name: Checkout device tree
+        uses: actions/checkout@v4
+        with:
+          path: device_tree
 
-  - name: Install dependencies
-    run: |
-      sudo apt-get update
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y adb bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf lib32ncurses-dev lib32readline-dev lib32z1-dev libelf-dev liblz4-tool libncurses-dev libssl-dev libxml2-utils lzop rsync unzip xsltproc zip zlib1g-dev
 
-      sudo apt-get install -y \
-        adb \
-        bc \
-        bison \
-        build-essential \
-        ccache \
-        curl \
-        flex \
-        g++-multilib \
-        gcc-multilib \
-        git \
-        gnupg \
-        gperf \
-        lib32ncurses-dev \
-        lib32readline-dev \
-        lib32z1-dev \
-        libelf-dev \
-        liblz4-tool \
-        libncurses-dev \
-        libssl-dev \
-        libxml2-utils \
-        lzop \
-        rsync \
-        unzip \
-        xsltproc \
-        zip \
-        zlib1g-dev
+      - name: Prepare PBRP source
+        run: |
+          set -e
+          mkdir -p "$GITHUB_WORKSPACE/pbrp"
+          cd "$GITHUB_WORKSPACE/pbrp"
+          repo init --depth=1 -u https://github.com/PitchBlackRecoveryProject/manifest_pb -b "$PBRP_BRANCH"
+          repo sync -c --no-clone-bundle --no-tags -j"$(nproc --all)"
 
-  - name: Configure git
-    run: |
-      git config --global user.name "PBRP Builder"
-      git config --global user.email "pbrp-builder@localhost"
+      - name: Install spinel device tree
+        run: |
+          set -e
+          mkdir -p "$GITHUB_WORKSPACE/pbrp/device/xiaomi"
+          rm -rf "$GITHUB_WORKSPACE/pbrp/device/xiaomi/$DEVICE"
+          cp -a "$GITHUB_WORKSPACE/device_tree/device/xiaomi/$DEVICE" "$GITHUB_WORKSPACE/pbrp/device/xiaomi/$DEVICE"
+          cd "$GITHUB_WORKSPACE/pbrp/device/xiaomi/$DEVICE/prebuilt"
+          cat platform_ramdisk.part1 platform_ramdisk.part2 > platform_ramdisk.cpio.lz4
+          rm -f platform_ramdisk.part1 platform_ramdisk.part2
 
-  - name: Check PBRP source
-    run: |
-      cd "$GITHUB_WORKSPACE/pbrp"
+      - name: Configure ccache
+        run: |
+          mkdir -p "$HOME/.ccache"
+          ccache --max-size=10G
+          echo "CCACHE_DIR=$HOME/.ccache" >> "$GITHUB_ENV"
 
-      echo "======================================"
-      echo "PBRP SOURCE"
-      echo "======================================"
+      - name: Build
+        shell: bash
+        run: |
+          set -e
+          cd "$GITHUB_WORKSPACE/pbrp"
+          source build/envsetup.sh
+          lunch pb_${DEVICE}-eng
+          mka pbrp vendorbootimage -j"$(nproc --all)" || \
+            mka pbrp -j"$(nproc --all)"
 
-      pwd
-      ls -la
+      - name: Check output
+        run: |
+          set -e
+          cd "$GITHUB_WORKSPACE/pbrp"
+          find "out/target/product/$DEVICE" -maxdepth 1 -type f -print
+          test -f "out/target/product/$DEVICE/vendor_boot.img"
 
-      if [ ! -f "build/envsetup.sh" ]; then
-        echo "ERROR: build/envsetup.sh not found!"
-        exit 1
-      fi
-
-      echo "build/envsetup.sh found."
-
-  - name: Check device tree
-    run: |
-      cd "$GITHUB_WORKSPACE/pbrp"
-
-      echo "======================================"
-      echo "CHECK DEVICE TREE"
-      echo "======================================"
-
-      FOUND=0
-
-      for DIR in \
-        "device/xiaomi/$DEVICE" \
-        "device/redmi/$DEVICE" \
-        "device/$DEVICE"
-      do
-        if [ -d "$DIR" ]; then
-          echo "Device tree found: $DIR"
-          ls -la "$DIR"
-          FOUND=1
-          break
-        fi
-      done
-
-      if [ "$FOUND" -eq 0 ]; then
-        echo "ERROR: Device tree for $DEVICE was not found!"
-        echo "Checked:"
-        echo "device/xiaomi/$DEVICE"
-        echo "device/redmi/$DEVICE"
-        echo "device/$DEVICE"
-        exit 1
-      fi
-
-  - name: Check kernel
-    run: |
-      cd "$GITHUB_WORKSPACE/pbrp"
-
-      echo "======================================"
-      echo "CHECK KERNEL"
-      echo "======================================"
-
-      if [ -d "prebuilt/kernel" ]; then
-        echo "Found prebuilt/kernel"
-        find prebuilt/kernel -maxdepth 2 -type f | head -50
-
-      elif [ -d "kernel" ]; then
-        echo "Found kernel/"
-        find kernel -maxdepth 3 -type d | head -50
-
-      else
-        echo "WARNING: No kernel directory found."
-        echo "Checked:"
-        echo "prebuilt/kernel"
-        echo "kernel/"
-      fi
-
-  - name: Configure ccache
-    run: |
-      mkdir -p "$HOME/.ccache"
-      ccache --max-size=10G
-      echo "CCACHE_DIR=$HOME/.ccache" >> "$GITHUB_ENV"
-
-  - name: Initialize build environment
-    shell: bash
-    run: |
-      cd "$GITHUB_WORKSPACE/pbrp"
-
-      source build/envsetup.sh
-
-      echo "Build environment initialized."
-
-  - name: Find PBRP lunch target
-    shell: bash
-    run: |
-      cd "$GITHUB_WORKSPACE/pbrp"
-
-      source build/envsetup.sh
-
-      echo "======================================"
-      echo "AVAILABLE PBRP TARGETS"
-      echo "======================================"
-
-      lunch 2>&1 | tee /tmp/lunch_targets.txt || true
-
-      echo
-      echo "Searching for spinel..."
-
-      grep -i "spinel" /tmp/lunch_targets.txt || true
-
-  - name: Lunch spinel
-    shell: bash
-    run: |
-      cd "$GITHUB_WORKSPACE/pbrp"
-
-      source build/envsetup.sh
-
-      echo "======================================"
-      echo "LUNCH PBRP SPINEL"
-      echo "======================================"
-
-      lunch "pbrp_${DEVICE}-eng"
-
-  - name: Build recovery
-    shell: bash
-    run: |
-      cd "$GITHUB_WORKSPACE/pbrp"
-
-      source build/envsetup.sh
-
-      lunch "pbrp_${DEVICE}-eng"
-
-      echo "======================================"
-      echo "BUILD PBRP RECOVERY"
-      echo "======================================"
-
-      mka recoveryimage -j"$(nproc --all)"
-
-  - name: Check recovery output
-    run: |
-      cd "$GITHUB_WORKSPACE/pbrp"
-
-      echo "======================================"
-      echo "RECOVERY OUTPUT"
-      echo "======================================"
-
-      find "out/target/product/$DEVICE" \
-        -maxdepth 2 \
-        -type f \
-        \( \
-          -name "recovery.img" \
-          -o -name "vendor_boot.img" \
-          -o -name "boot.img" \
-        \) \
-        -print
-
-  - name: Upload recovery
-    uses: actions/upload-artifact@v4
-    with:
-      name: PBRP-${{ env.DEVICE }}
-      path: |
-        pbrp/out/target/product/${{ env.DEVICE }}/recovery.img
-        pbrp/out/target/product/${{ env.DEVICE }}/vendor_boot.img
-        pbrp/out/target/product/${{ env.DEVICE }}/boot.img
-      if-no-files-found: warn
-```
+      - name: Upload recovery
+        uses: actions/upload-artifact@v4
+        with:
+          name: PBRP-spinel-OS3.0.301.0-WPGEUXM
+          path: |
+            pbrp/out/target/product/spinel/vendor_boot.img
+            pbrp/out/target/product/spinel/recovery.img
+            pbrp/out/target/product/spinel/boot.img
+            pbrp/out/target/product/spinel/dtbo.img
+          if-no-files-found: warn

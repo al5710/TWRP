@@ -1,0 +1,3 @@
+kernel.rcu_nocbs=all
+kernel.rcutree.enable_rcu_lazy=1
+kernel.rcupdate.rcu_cpu_stall_cputime=1
