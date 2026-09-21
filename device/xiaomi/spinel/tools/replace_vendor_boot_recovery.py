@@ -1,241 +1,465 @@
 #!/usr/bin/env python3
 
+import os
 import struct
 import sys
 
-PAGE = 4096
-HEADER_SIZE = 2128
-ENTRY_SIZE = 108
 
-TYPE_RECOVERY = 2
+PAGE_SIZE = 4096
+VENDOR_BOOT_SIZE = 64 * 1024 * 1024
 
-def align(value, page=PAGE):
-    return (value + page - 1) // page * page
+VENDOR_BOOT_MAGIC = b"VNDRBOOT"
+VENDOR_BOOT_HEADER_V4_SIZE = 2128
 
-def fail(msg):
-    print(f"ERROR: {msg}", file=sys.stderr)
+RAMDISK_TYPE_NONE = 0
+RAMDISK_TYPE_PLATFORM = 1
+RAMDISK_TYPE_RECOVERY = 2
+RAMDISK_TYPE_DLKM = 3
+
+TABLE_ENTRY_SIZE = 108
+
+
+def align(value, alignment):
+    return (value + alignment - 1) // alignment * alignment
+
+
+def fail(message):
+    print(f"ERROR: {message}", file=sys.stderr)
     sys.exit(1)
 
-if len(sys.argv) != 4:
-    fail("usage: replace_vendor_boot_recovery.py stock_vendor_boot.img pbrp_vendor_boot.img output.img")
 
-stock_path, pbrp_path, output_path = sys.argv[1:]
+def read_vendor_boot(path):
+    with open(path, "rb") as f:
+        data = f.read()
 
-with open(stock_path, "rb") as f:
-    stock = bytearray(f.read())
+    if len(data) < VENDOR_BOOT_HEADER_V4_SIZE:
+        fail(f"{path}: file too small")
 
-with open(pbrp_path, "rb") as f:
-    pbrp = bytes(f.read())
+    if data[0:8] != VENDOR_BOOT_MAGIC:
+        fail(f"{path}: invalid vendor_boot magic")
 
-if len(stock) != 67108864:
-    fail(f"stock vendor_boot size is {len(stock)}, expected 67108864")
+    header_version = struct.unpack_from("<I", data, 8)[0]
+    if header_version != 4:
+        fail(
+            f"{path}: header version is {header_version}, "
+            "expected 4"
+        )
 
-if stock[:8] != b"VNDRBOOT":
-    fail("stock image is not vendor_boot")
+    page_size = struct.unpack_from("<I", data, 12)[0]
+    header_size = struct.unpack_from("<I", data, 20)[0]
 
-header_version = struct.unpack_from("<I", stock, 8)[0]
-page_size = struct.unpack_from("<I", stock, 12)[0]
-vendor_ramdisk_size = struct.unpack_from("<I", stock, 24)[0]
-header_size = struct.unpack_from("<I", stock, 2084)[0]
-dtb_size = struct.unpack_from("<I", stock, 2088)[0]
+    if page_size != PAGE_SIZE:
+        fail(
+            f"{path}: page size is {page_size}, "
+            f"expected {PAGE_SIZE}"
+        )
 
-if header_version != 4:
-    fail(f"stock vendor_boot header version is {header_version}, expected 4")
+    if header_size != VENDOR_BOOT_HEADER_V4_SIZE:
+        fail(
+            f"{path}: header size is {header_size}, "
+            f"expected {VENDOR_BOOT_HEADER_V4_SIZE}"
+        )
 
-if page_size != PAGE:
-    fail(f"stock page size is {page_size}, expected {PAGE}")
+    vendor_ramdisk_size = struct.unpack_from("<I", data, 24)[0]
+    dtb_size = struct.unpack_from("<I", data, 2056)[0]
 
-if header_size != HEADER_SIZE:
-    fail(f"stock header size is {header_size}, expected {HEADER_SIZE}")
+    table_size = struct.unpack_from("<I", data, 2060)[0]
+    table_entry_num = struct.unpack_from("<I", data, 2064)[0]
+    table_entry_size = struct.unpack_from("<I", data, 2068)[0]
 
-table_size, entry_count, entry_size, bootconfig_size = struct.unpack_from(
-    "<IIII", stock, 2112
-)
+    if table_entry_size != TABLE_ENTRY_SIZE:
+        fail(
+            f"{path}: table entry size is {table_entry_size}, "
+            f"expected {TABLE_ENTRY_SIZE}"
+        )
 
-if entry_size != ENTRY_SIZE:
-    fail(f"unexpected table entry size: {entry_size}")
+    header_end = header_size
 
-header_end = align(header_size)
-ramdisk_start = header_end
-dtb_start = ramdisk_start + align(vendor_ramdisk_size)
-table_start = dtb_start + align(dtb_size)
-bootconfig_start = table_start + align(table_size)
+    ramdisk_start = align(header_end, page_size)
+    ramdisk_end = ramdisk_start + vendor_ramdisk_size
 
-print(f"stock vendor_ramdisk_size = {vendor_ramdisk_size}")
-print(f"stock entry_count         = {entry_count}")
-print(f"stock table_size          = {table_size}")
-print(f"stock bootconfig_size     = {bootconfig_size}")
+    dtb_start = align(ramdisk_end, page_size)
+    dtb_end = dtb_start + dtb_size
 
-entries = []
+    table_start = align(dtb_end, page_size)
+    table_end = table_start + table_size
 
-for i in range(entry_count):
-    off = table_start + i * entry_size
+    bootconfig_start = align(table_end, page_size)
 
-    ramdisk_size, ramdisk_offset, ramdisk_type = struct.unpack_from(
-        "<III", stock, off
+    if bootconfig_start + 4 > len(data):
+        fail(f"{path}: bootconfig area is outside image")
+
+    bootconfig_size = struct.unpack_from(
+        "<I",
+        data,
+        bootconfig_start,
+    )[0]
+
+    bootconfig_end = bootconfig_start + 4 + bootconfig_size
+
+    if bootconfig_end > len(data):
+        fail(f"{path}: bootconfig extends beyond image")
+
+    if table_size != table_entry_num * table_entry_size:
+        fail(
+            f"{path}: invalid table size: "
+            f"{table_size} != "
+            f"{table_entry_num} * {table_entry_size}"
+        )
+
+    fragments = []
+
+    for index in range(table_entry_num):
+        entry_offset = table_start + index * table_entry_size
+
+        ramdisk_size = struct.unpack_from(
+            "<I",
+            data,
+            entry_offset,
+        )[0]
+
+        ramdisk_offset = struct.unpack_from(
+            "<I",
+            data,
+            entry_offset + 4,
+        )[0]
+
+        ramdisk_type = struct.unpack_from(
+            "<I",
+            data,
+            entry_offset + 8,
+        )[0]
+
+        name_raw = data[
+            entry_offset + 12:
+            entry_offset + 44
+        ]
+
+        name = name_raw.split(b"\0", 1)[0].decode(
+            "ascii",
+            errors="replace",
+        )
+
+        board_id = data[
+            entry_offset + 44:
+            entry_offset + 108
+        ]
+
+        fragment_start = ramdisk_start + ramdisk_offset
+        fragment_end = fragment_start + ramdisk_size
+
+        if fragment_end > len(data):
+            fail(
+                f"{path}: fragment {index} "
+                "extends beyond image"
+            )
+
+        fragment_data = data[
+            fragment_start:
+            fragment_end
+        ]
+
+        fragments.append(
+            {
+                "size": ramdisk_size,
+                "offset": ramdisk_offset,
+                "type": ramdisk_type,
+                "name": name,
+                "board_id": board_id,
+                "data": fragment_data,
+            }
+        )
+
+    return {
+        "data": data,
+        "page_size": page_size,
+        "header_size": header_size,
+        "vendor_ramdisk_size": vendor_ramdisk_size,
+        "dtb_size": dtb_size,
+        "dtb": data[dtb_start:dtb_end],
+        "table_size": table_size,
+        "table_entry_num": table_entry_num,
+        "table_entry_size": table_entry_size,
+        "bootconfig": data[
+            bootconfig_start:
+            bootconfig_end
+        ],
+        "fragments": fragments,
+    }
+
+
+def find_recovery(info, path):
+    matches = []
+
+    for fragment in info["fragments"]:
+        if (
+            fragment["type"] == RAMDISK_TYPE_RECOVERY
+            or fragment["name"] == "recovery"
+        ):
+            matches.append(fragment)
+
+    if len(matches) != 1:
+        fail(
+            f"{path}: expected exactly one RECOVERY "
+            f"fragment, found {len(matches)}"
+        )
+
+    return matches[0]
+
+
+def build_vendor_boot(stock, new_recovery):
+    fragments = []
+
+    replaced = False
+
+    for fragment in stock["fragments"]:
+        if (
+            fragment["type"] == RAMDISK_TYPE_RECOVERY
+            or fragment["name"] == "recovery"
+        ):
+            fragments.append(
+                {
+                    "size": len(new_recovery),
+                    "type": fragment["type"],
+                    "name": fragment["name"],
+                    "board_id": fragment["board_id"],
+                    "data": new_recovery,
+                }
+            )
+
+            replaced = True
+        else:
+            fragments.append(
+                {
+                    "size": len(fragment["data"]),
+                    "type": fragment["type"],
+                    "name": fragment["name"],
+                    "board_id": fragment["board_id"],
+                    "data": fragment["data"],
+                }
+            )
+
+    if not replaced:
+        fail("stock vendor_boot has no RECOVERY fragment")
+
+    ramdisk = bytearray()
+
+    table_entries = []
+
+    for fragment in fragments:
+        offset = len(ramdisk)
+
+        ramdisk.extend(fragment["data"])
+
+        entry = bytearray(TABLE_ENTRY_SIZE)
+
+        struct.pack_into(
+            "<I",
+            entry,
+            0,
+            len(fragment["data"]),
+        )
+
+        struct.pack_into(
+            "<I",
+            entry,
+            4,
+            offset,
+        )
+
+        struct.pack_into(
+            "<I",
+            entry,
+            8,
+            fragment["type"],
+        )
+
+        name = fragment["name"].encode(
+            "ascii",
+            errors="ignore",
+        )[:32]
+
+        entry[12:12 + len(name)] = name
+
+        board_id = fragment["board_id"]
+
+        if len(board_id) != 64:
+            fail("invalid board_id size")
+
+        entry[44:108] = board_id
+
+        table_entries.append(entry)
+
+    new_ramdisk_size = len(ramdisk)
+
+    table = b"".join(table_entries)
+
+    header = bytearray(
+        stock["data"][:stock["header_size"]]
     )
-
-    name_raw = stock[off + 12:off + 44]
-    name = name_raw.split(b"\0", 1)[0].decode("ascii", errors="replace")
-
-    board_id = bytes(stock[off + 44:off + 108])
-
-    data_start = ramdisk_start + ramdisk_offset
-    data_end = data_start + ramdisk_size
-
-    if data_end > len(stock):
-        fail(f"fragment {i} exceeds image")
-
-    entries.append({
-        "size": ramdisk_size,
-        "offset": ramdisk_offset,
-        "type": ramdisk_type,
-        "name": name,
-        "board_id": board_id,
-        "data": bytes(stock[data_start:data_end]),
-    })
-
-    print(
-        f"fragment {i}: "
-        f"name='{name}' type={ramdisk_type} "
-        f"size={ramdisk_size} offset={ramdisk_offset}"
-    )
-
-recovery_index = None
-
-for i, entry in enumerate(entries):
-    if entry["type"] == TYPE_RECOVERY or entry["name"] == "recovery":
-        if recovery_index is not None:
-            fail("multiple recovery fragments found")
-        recovery_index = i
-
-if recovery_index is None:
-    fail("stock RECOVERY fragment not found")
-
-print(f"stock recovery fragment index = {recovery_index}")
-
-# Extract RECOVERY from the PBRP-built vendor_boot.
-if pbrp[:8] != b"VNDRBOOT":
-    fail("PBRP image is not vendor_boot")
-
-pbrp_version = struct.unpack_from("<I", pbrp, 8)[0]
-pbrp_page = struct.unpack_from("<I", pbrp, 12)[0]
-pbrp_ramdisk_size = struct.unpack_from("<I", pbrp, 24)[0]
-pbrp_header_size = struct.unpack_from("<I", pbrp, 2084)[0]
-pbrp_dtb_size = struct.unpack_from("<I", pbrp, 2088)[0]
-
-if pbrp_version != 4 or pbrp_page != PAGE or pbrp_header_size != HEADER_SIZE:
-    fail("PBRP vendor_boot has unexpected v4 header")
-
-pbrp_table_size, pbrp_entry_count, pbrp_entry_size, pbrp_bootconfig_size = struct.unpack_from(
-    "<IIII", pbrp, 2112
-)
-
-if pbrp_entry_size != ENTRY_SIZE:
-    fail("unexpected PBRP table entry size")
-
-pbrp_ramdisk_start = align(pbrp_header_size)
-pbrp_dtb_start = pbrp_ramdisk_start + align(pbrp_ramdisk_size)
-pbrp_table_start = pbrp_dtb_start + align(pbrp_dtb_size)
-
-pbrp_recovery = None
-
-for i in range(pbrp_entry_count):
-    off = pbrp_table_start + i * pbrp_entry_size
-
-    size, offset, rtype = struct.unpack_from("<III", pbrp, off)
-    name_raw = pbrp[off + 12:off + 44]
-    name = name_raw.split(b"\0", 1)[0].decode("ascii", errors="replace")
-
-    if rtype == TYPE_RECOVERY or name == "recovery":
-        if pbrp_recovery is not None:
-            fail("multiple PBRP recovery fragments found")
-
-        start = pbrp_ramdisk_start + offset
-        end = start + size
-
-        if end > len(pbrp):
-            fail("PBRP recovery fragment exceeds image")
-
-        pbrp_recovery = bytes(pbrp[start:end])
-
-if pbrp_recovery is None:
-    fail("PBRP RECOVERY fragment not found")
-
-print(f"PBRP recovery size = {len(pbrp_recovery)}")
-
-entries[recovery_index]["data"] = pbrp_recovery
-entries[recovery_index]["size"] = len(pbrp_recovery)
-
-# Rebuild vendor ramdisk section.
-ramdisk_section = bytearray()
-new_offsets = []
-
-for entry in entries:
-    new_offsets.append(len(ramdisk_section))
-    ramdisk_section.extend(entry["data"])
-
-new_ramdisk_size = len(ramdisk_section)
-
-# Keep the original DTB, table metadata, board IDs and bootconfig.
-dtb = stock[dtb_start:dtb_start + dtb_size]
-bootconfig = stock[bootconfig_start:bootconfig_start + bootconfig_size]
-
-new_table_size = entry_count * ENTRY_SIZE
-new_table = bytearray(new_table_size)
-
-for i, entry in enumerate(entries):
-    off = i * ENTRY_SIZE
 
     struct.pack_into(
-        "<III",
-        new_table,
-        off,
-        len(entry["data"]),
-        new_offsets[i],
-        entry["type"],
+        "<I",
+        header,
+        24,
+        new_ramdisk_size,
     )
 
-    name_bytes = entry["name"].encode("ascii")[:32]
-    new_table[off + 12:off + 44] = name_bytes.ljust(32, b"\0")
-    new_table[off + 44:off + 108] = entry["board_id"]
-
-# Update vendor_ramdisk_size.
-struct.pack_into("<I", stock, 24, new_ramdisk_size)
-
-# Construct the complete v4 image.
-output = bytearray()
-
-output.extend(stock[:header_end])
-output.extend(ramdisk_section)
-output.extend(b"\0" * (align(new_ramdisk_size) - new_ramdisk_size))
-output.extend(dtb)
-output.extend(b"\0" * (align(dtb_size) - dtb_size))
-output.extend(new_table)
-output.extend(b"\0" * (align(new_table_size) - new_table_size))
-output.extend(bootconfig)
-output.extend(b"\0" * (align(bootconfig_size) - bootconfig_size))
-
-# Preserve exact vendor_boot partition size.
-if len(output) > len(stock):
-    fail(
-        f"repacked image is too large: {len(output)} bytes "
-        f"(partition is {len(stock)})"
+    ramdisk_start = align(
+        len(header),
+        stock["page_size"],
     )
 
-output.extend(b"\0" * (len(stock) - len(output)))
+    ramdisk_end = ramdisk_start + new_ramdisk_size
 
-with open(output_path, "wb") as f:
-    f.write(output)
+    dtb_start = align(
+        ramdisk_end,
+        stock["page_size"],
+    )
 
-print(f"Created: {output_path}")
-print(f"Final size: {len(output)}")
-print("Final fragments:")
+    dtb_end = dtb_start + len(stock["dtb"])
 
-for i, entry in enumerate(entries):
+    table_start = align(
+        dtb_end,
+        stock["page_size"],
+    )
+
+    table_end = table_start + len(table)
+
+    bootconfig_start = align(
+        table_end,
+        stock["page_size"],
+    )
+
+    output = bytearray(VENDOR_BOOT_SIZE)
+
+    output[0:len(header)] = header
+
+    output[
+        ramdisk_start:
+        ramdisk_end
+    ] = ramdisk
+
+    output[
+        dtb_start:
+        dtb_end
+    ] = stock["dtb"]
+
+    output[
+        table_start:
+        table_end
+    ] = table
+
+    output[
+        bootconfig_start:
+        bootconfig_start + len(stock["bootconfig"])
+    ] = stock["bootconfig"]
+
+    return bytes(output)
+
+
+def main():
+    if len(sys.argv) != 4:
+        print(
+            "Usage:\n"
+            "  replace_vendor_boot_recovery.py "
+            "<stock_vendor_boot> "
+            "<pbrp_vendor_boot> "
+            "<output_vendor_boot>"
+        )
+        sys.exit(2)
+
+    stock_path = sys.argv[1]
+    pbrp_path = sys.argv[2]
+    output_path = sys.argv[3]
+
+    print("Reading stock vendor_boot...")
+    stock = read_vendor_boot(stock_path)
+
+    print("Reading PBRP vendor_boot...")
+    pbrp = read_vendor_boot(pbrp_path)
+
+    stock_recovery = find_recovery(
+        stock,
+        stock_path,
+    )
+
+    pbrp_recovery = find_recovery(
+        pbrp,
+        pbrp_path,
+    )
+
+    print()
+    print("===== STOCK =====")
     print(
-        f"  {i}: name='{entry['name']}' "
-        f"type={entry['type']} "
-        f"size={len(entry['data'])} "
-        f"offset={new_offsets[i]}"
+        f"vendor ramdisk size: "
+        f"{stock['vendor_ramdisk_size']}"
     )
+    print(
+        f"fragments: "
+        f"{len(stock['fragments'])}"
+    )
+
+    for i, fragment in enumerate(stock["fragments"]):
+        print(
+            f"  [{i}] "
+            f"type={fragment['type']} "
+            f"name={fragment['name']!r} "
+            f"size={len(fragment['data'])}"
+        )
+
+    print()
+    print("===== PBRP =====")
+    print(
+        f"vendor ramdisk size: "
+        f"{pbrp['vendor_ramdisk_size']}"
+    )
+    print(
+        f"fragments: "
+        f"{len(pbrp['fragments'])}"
+    )
+
+    for i, fragment in enumerate(pbrp["fragments"]):
+        print(
+            f"  [{i}] "
+            f"type={fragment['type']} "
+            f"name={fragment['name']!r} "
+            f"size={len(fragment['data'])}"
+        )
+
+    print()
+    print(
+        "Replacing stock RECOVERY fragment:"
+    )
+    print(
+        f"  old size: "
+        f"{len(stock_recovery['data'])}"
+    )
+    print(
+        f"  new size: "
+        f"{len(pbrp_recovery['data'])}"
+    )
+
+    result = build_vendor_boot(
+        stock,
+        pbrp_recovery["data"],
+    )
+
+    if len(result) != VENDOR_BOOT_SIZE:
+        fail(
+            f"output size is {len(result)}, "
+            f"expected {VENDOR_BOOT_SIZE}"
+        )
+
+    with open(output_path, "wb") as f:
+        f.write(result)
+
+    print()
+    print("===== OUTPUT =====")
+    print(f"output: {output_path}")
+    print(f"size: {len(result)}")
+    print("SUCCESS")
+
+
+if __name__ == "__main__":
+    main()
