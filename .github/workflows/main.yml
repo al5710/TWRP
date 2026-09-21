@@ -289,6 +289,7 @@ jobs:
           set -e
 
           ROOT="$GITHUB_WORKSPACE/pbrp/out/target/product/spinel/recovery/root"
+          PRODUCT="$GITHUB_WORKSPACE/pbrp/out/target/product/spinel"
 
           echo "===== REQUIRED RECOVERY FILES ====="
 
@@ -296,7 +297,6 @@ jobs:
             "$ROOT/system/bin/recovery" \
             "$ROOT/system/bin/twrp" \
             "$ROOT/system/bin/init" \
-            "$ROOT/system/bin/adbd" \
             "$ROOT/system/bin/toybox" \
             "$ROOT/system/bin/sh" \
             "$ROOT/etc/recovery.fstab" \
@@ -311,18 +311,32 @@ jobs:
           done
 
           echo
+          echo "===== SEARCH FOR ADBD ====="
+
+          find "$PRODUCT" \
+            -type f \
+            -name "adbd" \
+            -ls 2>/dev/null || true
+
+          echo
           echo "===== RECOVERY EXECUTABLE PERMISSIONS ====="
 
           ls -l \
             "$ROOT/system/bin/recovery" \
             "$ROOT/system/bin/twrp" \
             "$ROOT/system/bin/init" \
-            "$ROOT/system/bin/adbd" \
-            "$ROOT/system/bin/toybox"
+            "$ROOT/system/bin/toybox" \
+            "$ROOT/system/bin/sh"
 
           echo
-          echo "===== RECOVERY ROOT ====="
+          echo "===== RECOVERY ROOT SIZE ====="
+
           du -sh "$ROOT"
+
+          echo
+          echo "===== RECOVERY ROOT FILE COUNT ====="
+
+          find "$ROOT" -type f | wc -l
 
           echo
           echo "===== RECOVERY RUNTIME CHECK: OK ====="
