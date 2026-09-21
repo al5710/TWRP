@@ -308,6 +308,39 @@ jobs:
             echo "ERROR: pbrp_recovery_fragment.bin was not created"
             exit 1
           fi
+          - name: Build stock-based vendor_boot
+         run: |
+          set -e
+
+          PRODUCT="$GITHUB_WORKSPACE/pbrp/out/target/product/spinel"
+
+          STOCK_VENDOR_BOOT="$GITHUB_WORKSPACE/device_tree/device/xiaomi/spinel/prebuilt/vendor_boot.img"
+          PBRP_RECOVERY="$PRODUCT/pbrp_recovery_fragment.bin"
+          SCRIPT="$GITHUB_WORKSPACE/pbrp/device/xiaomi/spinel/tools/replace_vendor_boot.py"
+          OUTPUT="$PRODUCT/vendor_boot.img"
+
+          echo "===== INPUT FILES ====="
+
+          test -s "$STOCK_VENDOR_BOOT"
+          test -s "$PBRP_RECOVERY"
+          test -f "$SCRIPT"
+
+          ls -lh "$STOCK_VENDOR_BOOT"
+          ls -lh "$PBRP_RECOVERY"
+
+          echo
+          echo "===== REPLACE RECOVERY IN STOCK VENDOR_BOOT ====="
+
+          python3 "$SCRIPT" \
+            "$STOCK_VENDOR_BOOT" \
+            "$PBRP_RECOVERY" \
+            "$OUTPUT"
+
+          echo
+          echo "===== FINAL VENDOR_BOOT ====="
+
+          test -s "$OUTPUT"
+          ls -lh "$OUTPUT"
 
       - name: Prepare artifacts
         run: |
