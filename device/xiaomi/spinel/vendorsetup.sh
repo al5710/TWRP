@@ -1,1 +1,1 @@
-add_lunch_combo pb_spinel-eng
+# Legacy vendorsetup.sh intentionally empty.
