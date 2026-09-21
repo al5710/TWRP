@@ -434,6 +434,19 @@ jobs:
 
           python3 "$SCRIPT" "vendor_boot.img"
 
+          echo
+          echo "===== FINAL SIZE ====="
+          stat -c '%s bytes' vendor_boot.img
+
+          test "$(stat -c '%s' vendor_boot.img)" -eq 67108864
+
+          echo
+          echo "===== FINAL VENDOR_BOOT CHECK: OK ====="
+
+          echo "===== FINAL STOCK-BASED VENDOR_BOOT ====="
+
+          python3 "$SCRIPT" "vendor_boot.img"
+
       - name: Prepare artifacts
         run: |
           set -e
