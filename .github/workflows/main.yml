@@ -62,24 +62,16 @@ jobs:
       - name: Install repo tool
         run: |
           set -e
-
           mkdir -p "$HOME/bin"
-
-          curl -L \
-            https://storage.googleapis.com/git-repo-downloads/repo \
-            -o "$HOME/bin/repo"
-
+          curl -L https://storage.googleapis.com/git-repo-downloads/repo -o "$HOME/bin/repo"
           chmod +x "$HOME/bin/repo"
-
           "$HOME/bin/repo" --version
 
       - name: Initialize PBRP source
         run: |
           set -e
-
           mkdir -p "$GITHUB_WORKSPACE/pbrp"
           cd "$GITHUB_WORKSPACE/pbrp"
-
           "$HOME/bin/repo" init \
             --depth=1 \
             -u https://github.com/PitchBlackRecoveryProject/manifest_pb \
@@ -88,9 +80,7 @@ jobs:
       - name: Sync PBRP source
         run: |
           set -e
-
           cd "$GITHUB_WORKSPACE/pbrp"
-
           "$HOME/bin/repo" sync \
             -c \
             --no-clone-bundle \
@@ -100,11 +90,8 @@ jobs:
       - name: Install spinel device tree
         run: |
           set -e
-
           mkdir -p "$GITHUB_WORKSPACE/pbrp/device/xiaomi"
-
           rm -rf "$GITHUB_WORKSPACE/pbrp/device/xiaomi/spinel"
-
           cp -a \
             "$GITHUB_WORKSPACE/device_tree/device/xiaomi/spinel" \
             "$GITHUB_WORKSPACE/pbrp/device/xiaomi/spinel"
@@ -112,103 +99,42 @@ jobs:
       - name: Check device tree
         run: |
           set -e
-
           cd "$GITHUB_WORKSPACE/pbrp"
-
           echo "===== DEVICE TREE ====="
           find device/xiaomi/spinel -maxdepth 3 -type f | sort
-
           echo
           echo "===== BOARD CONFIG ====="
           sed -n '1,240p' device/xiaomi/spinel/BoardConfig.mk
 
-      - name: Check PBRP source
-        run: |
-          set -e
-
-          cd "$GITHUB_WORKSPACE/pbrp"
-
-          echo "===== PBRP ROOT ====="
-          ls -la
-
-          echo
-          echo "===== BUILD SCRIPT ====="
-          ls -la build/envsetup.sh
-
-          echo
-          echo "===== DEVICE DIRECTORY ====="
-          ls -la device/xiaomi/spinel
-
       - name: Configure ccache
         run: |
           set -e
-
           ccache --max-size=10G
-
           echo "USE_CCACHE=$USE_CCACHE" >> "$GITHUB_ENV"
           echo "CCACHE_EXEC=$(which ccache)" >> "$GITHUB_ENV"
-
           ccache -s
-
-      - name: Initialize build environment
-        run: |
-          set -e
-
-          cd "$GITHUB_WORKSPACE/pbrp"
-
-          source build/envsetup.sh
-
-      - name: Find spinel lunch target
-        run: |
-          set -e
-
-          cd "$GITHUB_WORKSPACE/pbrp"
-
-          source build/envsetup.sh
-
-          echo "===== AVAILABLE SPINEL TARGETS ====="
-
-          lunch_targets="$(find device/xiaomi/spinel -maxdepth 1 -type f \
-            \( -name '*products.mk' -o -name 'AndroidProducts.mk' \) \
-            -print -exec grep -h 'COMMON_LUNCH_CHOICES' {} \; 2>/dev/null || true)"
-
-          echo "$lunch_targets"
-
-          echo
-          echo "===== LUNCH VARIABLES ====="
-
-          grep -R \
-            "pb_spinel" \
-            device/xiaomi/spinel \
-            2>/dev/null || true
 
       - name: Lunch PBRP spinel
         run: |
           set -e
-
           cd "$GITHUB_WORKSPACE/pbrp"
-
           source build/envsetup.sh
-
           lunch "pb_${DEVICE}-eng"
 
-              - name: Build PBRP
-run: |
-set -e
-` cd "$GITHUB_WORKSPACE/pbrp"`
-source build/envsetup.sh
-lunch "pb_${DEVICE}-eng"
-` echo "===== BUILD START ====="`
-mka pbrp -j"$(nproc --all)"
+      - name: Build PBRP
+        run: |
+          set -e
+          cd "$GITHUB_WORKSPACE/pbrp"
+          source build/envsetup.sh
+          lunch "pb_${DEVICE}-eng"
+          echo "===== BUILD START ====="
+          mka pbrp -j"$(nproc --all)"
 
       - name: Check build output
         run: |
           set -e
-
           cd "$GITHUB_WORKSPACE/pbrp"
-
           echo "===== SEARCHING FOR RECOVERY IMAGES ====="
-
           find out/target/product/spinel \
             -maxdepth 2 \
             -type f \
@@ -222,15 +148,12 @@ mka pbrp -j"$(nproc --all)"
 
           echo
           echo "===== PRODUCT OUTPUT ====="
-
           ls -lah out/target/product/spinel/ 2>/dev/null || true
 
       - name: Prepare artifacts
         run: |
           set -e
-
           mkdir -p "$GITHUB_WORKSPACE/artifacts"
-
           PRODUCT="$GITHUB_WORKSPACE/pbrp/out/target/product/spinel"
 
           for file in \
