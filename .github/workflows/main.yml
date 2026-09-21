@@ -600,6 +600,161 @@ jobs:
           echo
           echo "===== PBRP RECOVERY FRAGMENT CHECK: OK ====="
 
+      - name: Verify PBRP Android 16 runtime compatibility
+        run: |
+          set -e
+
+          PRODUCT="$GITHUB_WORKSPACE/pbrp/out/target/product/spinel"
+          ROOT="$PRODUCT/recovery_fragment_check/root"
+
+          test -d "$ROOT"
+
+          echo "===== PBRP ANDROID RUNTIME COMPATIBILITY ====="
+
+          echo
+          echo "===== BUILD PROPERTIES ====="
+
+          for prop in \
+            "$ROOT/system/build.prop" \
+            "$ROOT/prop.default"
+          do
+            if [ -f "$prop" ]; then
+              echo
+              echo "--- $prop ---"
+
+              grep -E \
+                '^(ro.build.version.sdk|ro.build.version.release|ro.build.version.codename|ro.product.first_api_level|ro.product.build.version.sdk)=' \
+                "$prop" || true
+            fi
+          done
+
+          echo
+          echo "===== LINKER64 ====="
+
+          if [ -f "$ROOT/system/bin/linker64" ]; then
+            file "$ROOT/system/bin/linker64"
+            ls -lh "$ROOT/system/bin/linker64"
+          else
+            echo "WARNING: system/bin/linker64 is not present"
+          fi
+
+          echo
+          echo "===== LIBRARY DIRECTORIES ====="
+
+          find "$ROOT/system" \
+            -maxdepth 2 \
+            -type d \
+            \( \
+              -name "lib" \
+              -o -name "lib64" \
+            \) \
+            -print 2>/dev/null \
+            | sort || true
+
+          echo
+          echo "===== CORE LIBRARIES ====="
+
+          for file in \
+            system/lib64/libc.so \
+            system/lib64/libm.so \
+            system/lib64/libdl.so \
+            system/lib64/liblog.so \
+            system/lib64/libbase.so \
+            system/lib64/libselinux.so \
+            system/lib64/libcrypto.so \
+            system/lib64/libz.so \
+            system/lib64/libutils.so \
+            system/lib64/libcutils.so
+          do
+            if [ -f "$ROOT/$file" ]; then
+              echo "OK   $file"
+            else
+              echo "MISS $file"
+            fi
+          done
+
+          echo
+          echo "===== REQUIRED RECOVERY LIBRARIES ====="
+
+          find "$ROOT/system/lib64" \
+            -maxdepth 1 \
+            -type f \
+            -printf '%f\n' \
+            2>/dev/null \
+            | sort \
+            | head -300 || true
+
+          echo
+          echo "===== ELF NEEDED LIBRARIES ====="
+
+          for bin in \
+            system/bin/recovery \
+            system/bin/twrp \
+            system/bin/init \
+            system/bin/toybox \
+            system/bin/minadbd \
+            system/bin/fastbootd
+          do
+            echo
+            echo "--- $bin ---"
+
+            if [ -f "$ROOT/$bin" ]; then
+              file "$ROOT/$bin"
+
+              readelf -d "$ROOT/$bin" 2>/dev/null \
+                | grep 'Shared library:' \
+                || true
+            else
+              echo "MISSING: $bin"
+            fi
+          done
+
+          echo
+          echo "===== INTERPRETERS ====="
+
+          for bin in \
+            system/bin/recovery \
+            system/bin/twrp \
+            system/bin/init \
+            system/bin/toybox \
+            system/bin/minadbd \
+            system/bin/fastbootd
+          do
+            if [ -f "$ROOT/$bin" ]; then
+              echo
+              echo "--- $bin ---"
+
+              readelf -l "$ROOT/$bin" 2>/dev/null \
+                | grep -E 'Requesting program interpreter|INTERP' \
+                || true
+            fi
+          done
+
+          echo
+          echo "===== PBRP SOURCE PLATFORM VERSION ====="
+
+          if [ -f "$GITHUB_WORKSPACE/pbrp/build/make/core/version_defaults.mk" ]; then
+            grep -nE \
+              'PLATFORM_VERSION|PLATFORM_SDK_VERSION|PLATFORM_VERSION_CODENAME' \
+              "$GITHUB_WORKSPACE/pbrp/build/make/core/version_defaults.mk" \
+              | head -50 \
+              || true
+          fi
+
+          echo
+          echo "===== PBRP BUILD VARIABLES ====="
+
+          if [ -f "$PRODUCT/installed-files.txt" ]; then
+            grep -E \
+              'system/bin/(recovery|twrp|init|toybox|minadbd|fastbootd)' \
+              "$PRODUCT/installed-files.txt" \
+              | head -50 \
+              || true
+          fi
+
+          echo
+          echo "===== ANDROID RUNTIME CHECK COMPLETE ====="
+
       - name: Prepare artifacts
         run: |
           set -e
