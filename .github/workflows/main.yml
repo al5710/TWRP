@@ -284,6 +284,49 @@ jobs:
             out/target/product/spinel/recovery/root \
             2>/dev/null | tail -30 || true
 
+      - name: Verify PBRP recovery runtime
+        run: |
+          set -e
+
+          ROOT="$GITHUB_WORKSPACE/pbrp/out/target/product/spinel/recovery/root"
+
+          echo "===== REQUIRED RECOVERY FILES ====="
+
+          for file in \
+            "$ROOT/system/bin/recovery" \
+            "$ROOT/system/bin/twrp" \
+            "$ROOT/system/bin/init" \
+            "$ROOT/system/bin/adbd" \
+            "$ROOT/system/bin/toybox" \
+            "$ROOT/system/bin/sh" \
+            "$ROOT/etc/recovery.fstab" \
+            "$ROOT/init.recovery.mt6789.rc"
+          do
+            if [ -f "$file" ]; then
+              ls -lh "$file"
+            else
+              echo "ERROR: missing $file"
+              exit 1
+            fi
+          done
+
+          echo
+          echo "===== RECOVERY EXECUTABLE PERMISSIONS ====="
+
+          ls -l \
+            "$ROOT/system/bin/recovery" \
+            "$ROOT/system/bin/twrp" \
+            "$ROOT/system/bin/init" \
+            "$ROOT/system/bin/adbd" \
+            "$ROOT/system/bin/toybox"
+
+          echo
+          echo "===== RECOVERY ROOT ====="
+          du -sh "$ROOT"
+
+          echo
+          echo "===== RECOVERY RUNTIME CHECK: OK ====="
+
       - name: Inspect PBRP vendor_boot
         run: |
           set -e
