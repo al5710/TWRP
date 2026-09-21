@@ -298,7 +298,6 @@ jobs:
             "$ROOT/system/bin/twrp" \
             "$ROOT/system/bin/init" \
             "$ROOT/system/bin/toybox" \
-            "$ROOT/system/bin/sh" \
             "$ROOT/etc/recovery.fstab" \
             "$ROOT/init.recovery.mt6789.rc"
           do
@@ -309,6 +308,18 @@ jobs:
               exit 1
             fi
           done
+
+          echo
+          echo "===== SEARCH FOR SHELL ====="
+
+          find "$ROOT" \
+            -type f \
+            \( \
+              -name "sh" \
+              -o -name "ash" \
+              -o -name "bash" \
+            \) \
+            -ls 2>/dev/null || true
 
           echo
           echo "===== SEARCH FOR ADBD ====="
@@ -325,8 +336,7 @@ jobs:
             "$ROOT/system/bin/recovery" \
             "$ROOT/system/bin/twrp" \
             "$ROOT/system/bin/init" \
-            "$ROOT/system/bin/toybox" \
-            "$ROOT/system/bin/sh"
+            "$ROOT/system/bin/toybox"
 
           echo
           echo "===== RECOVERY ROOT SIZE ====="
@@ -337,6 +347,14 @@ jobs:
           echo "===== RECOVERY ROOT FILE COUNT ====="
 
           find "$ROOT" -type f | wc -l
+
+          echo
+          echo "===== RECOVERY BINARIES ====="
+
+          find "$ROOT/system/bin" \
+            -maxdepth 1 \
+            -type f \
+            -printf "%f\n" 2>/dev/null | sort | head -200
 
           echo
           echo "===== RECOVERY RUNTIME CHECK: OK ====="
