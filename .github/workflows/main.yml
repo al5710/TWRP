@@ -115,15 +115,44 @@ jobs:
           source build/envsetup.sh
           lunch "pb_${DEVICE}-eng"
 
-      - name: Build PBRP
+      - name: Build recovery target
         run: |
           set -e
           cd "$GITHUB_WORKSPACE/pbrp"
           source build/envsetup.sh
           lunch "pb_${DEVICE}-eng"
 
-          echo "===== BUILD START ====="
-          mka pbrp -j"$(nproc --all)"
+          echo "===== BUILD ENVIRONMENT ====="
+          echo "TARGET_PRODUCT=$TARGET_PRODUCT"
+          echo "TARGET_DEVICE=$TARGET_DEVICE"
+          echo "OUT=$OUT"
+
+          echo
+          echo "===== BUILD RECOVERY ====="
+          m recovery -j"$(nproc --all)"
+
+          echo
+          echo "===== CHECK RECOVERY EXECUTABLE ====="
+
+          PRODUCT="$GITHUB_WORKSPACE/pbrp/out/target/product/spinel"
+
+          find "$PRODUCT" \
+            -type f \
+            \( \
+              -path "*/system/bin/recovery" \
+              -o -path "*/system/bin/twrp" \
+              -o -path "*/system/bin/pbrp" \
+            \) \
+            -ls || true
+
+          echo
+          echo "===== CHECK RECOVERY ROOT ====="
+
+          if [ -d "$PRODUCT/recovery/root" ]; then
+            find "$PRODUCT/recovery/root" -maxdepth 4 -type f | sort | head -300
+          else
+            echo "WARNING: recovery/root does not exist"
+          fi
 
       - name: Check build output
         run: |
