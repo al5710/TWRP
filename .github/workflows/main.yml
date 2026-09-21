@@ -190,6 +190,40 @@ jobs:
             \) \
             -print 2>/dev/null | sort || true
 
+             - name: Find PBRP recovery binaries
+        run: |
+          set -e
+
+          cd "$GITHUB_WORKSPACE/pbrp"
+
+          echo "===== ALL RECOVERY BINARIES ====="
+
+          find out \
+            -type f \
+            \( \
+              -name "recovery" \
+              -o -name "twrp" \
+              -o -name "pbrp" \
+              -o -name "recovery_ramdisk*" \
+            \) \
+            -print 2>/dev/null | sort || true
+
+          echo
+          echo "===== POSSIBLE RECOVERY EXECUTABLES ====="
+
+          find out \
+            -type f \
+            -path "*/bin/*" \
+            -print 2>/dev/null | \
+            grep -E '/(recovery|twrp|pbrp)$' || true
+
+          echo
+          echo "===== RECOVERY ROOT SIZE ====="
+
+          du -ah \
+            out/target/product/spinel/recovery/root \
+            2>/dev/null | tail -30 || true
+
       - name: Inspect PBRP vendor_boot
         run: |
           set -e
