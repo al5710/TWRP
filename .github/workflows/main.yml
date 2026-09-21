@@ -164,9 +164,44 @@ jobs:
           echo "===== FINAL IMAGE ====="
           ls -lh "$GITHUB_WORKSPACE/repacked/vendor_boot.img"
 
+      - name: Prepare artifacts
+        run: |
+          set -e
+
+          ARTIFACTS="$GITHUB_WORKSPACE/artifacts"
+          FINAL="$GITHUB_WORKSPACE/repacked/vendor_boot.img"
+          PRODUCT="$GITHUB_WORKSPACE/pbrp/out/target/product/spinel"
+
+          mkdir -p "$ARTIFACTS"
+
+          echo "===== REPACKED VENDOR BOOT ====="
+
+          test -f "$FINAL"
+          ls -lh "$FINAL"
+
+          cp "$FINAL" "$ARTIFACTS/vendor_boot.img"
+
+          echo
+          echo "===== PBRP RECOVERY OUTPUT ====="
+
+          for file in \
+            recovery.img \
+            pbrp.img
+          do
+            if [ -f "$PRODUCT/$file" ]; then
+              cp "$PRODUCT/$file" "$ARTIFACTS/$file"
+            fi
+          done
+
+          echo
+          echo "===== FINAL ARTIFACTS ====="
+          ls -lah "$ARTIFACTS"
+
+          test -s "$ARTIFACTS/vendor_boot.img"
+
       - name: Upload PBRP artifacts
         uses: actions/upload-artifact@v4
         with:
           name: PBRP-spinel
           path: artifacts/
-          if-no-files-found: warn
+          if-no-files-found: error
