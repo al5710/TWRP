@@ -1033,6 +1033,478 @@ jobs:
           echo
           echo "===== COMPARISON COMPLETE ====="
 
+      - name: Compare stock and PBRP recovery runtime files
+        run: |
+          set -e
+
+          PRODUCT="$GITHUB_WORKSPACE/pbrp/out/target/product/spinel"
+
+          WORK="$GITHUB_WORKSPACE/runtime_deep_compare"
+          STOCK="$GITHUB_WORKSPACE/stock_runtime_check/stock/root"
+          PBRP="$PRODUCT/recovery_fragment_check/root"
+
+          rm -rf "$WORK"
+
+          mkdir -p \
+            "$WORK/stock" \
+            "$WORK/pbrp"
+
+          echo "===== DEEP RECOVERY RUNTIME COMPARISON ====="
+
+          test -d "$STOCK"
+          test -d "$PBRP"
+
+          echo
+          echo "===== STOCK RUNTIME ROOT ====="
+          du -sh "$STOCK"
+          find "$STOCK" -type f | wc -l
+
+          echo
+          echo "===== PBRP RUNTIME ROOT ====="
+          du -sh "$PBRP"
+          find "$PBRP" -type f | wc -l
+
+          echo
+          echo "===== INIT FILES ====="
+
+          for file in \
+            init.rc \
+            init.recovery.rc \
+            init.recovery.hardware.rc \
+            init.recovery.mt6789.rc \
+            init.usb.configfs.rc \
+            init.usb.rc \
+            init.recovery.usb.rc \
+            ueventd.rc \
+            ueventd.recovery.rc \
+            ueventd.mt6789.rc
+          do
+            stock_status="MISS"
+            pbrp_status="MISS"
+
+            [ -f "$STOCK/$file" ] && stock_status="OK"
+            [ -f "$PBRP/$file" ] && pbrp_status="OK"
+
+            printf '%-35s STOCK=%-4s PBRP=%-4s\n' \
+              "$file" \
+              "$stock_status" \
+              "$pbrp_status"
+          done
+
+          echo
+          echo "===== FSTAB FILES ====="
+
+          find "$STOCK" \
+            -type f \
+            \( \
+              -iname '*fstab*' \
+            \) \
+            -printf '%P\n' \
+            | sort \
+            > "$WORK/stock_fstab.txt"
+
+          find "$PBRP" \
+            -type f \
+            \( \
+              -iname '*fstab*' \
+            \) \
+            -printf '%P\n' \
+            | sort \
+            > "$WORK/pbrp_fstab.txt"
+
+          echo "--- STOCK ---"
+          cat "$WORK/stock_fstab.txt" || true
+
+          echo
+          echo "--- PBRP ---"
+          cat "$WORK/pbrp_fstab.txt" || true
+
+          echo
+          echo "--- ONLY IN STOCK ---"
+
+          comm -23 \
+            "$WORK/stock_fstab.txt" \
+            "$WORK/pbrp_fstab.txt" \
+            || true
+
+          echo
+          echo "--- ONLY IN PBRP ---"
+
+          comm -13 \
+            "$WORK/stock_fstab.txt" \
+            "$WORK/pbrp_fstab.txt" \
+            || true
+
+          echo
+          echo "===== LINKERCONFIG ====="
+
+          find "$STOCK" \
+            -type f \
+            \( \
+              -path '*/linkerconfig/*' \
+              -o -name 'ld.config.txt' \
+            \) \
+            -printf '%P\n' \
+            | sort \
+            > "$WORK/stock_linkerconfig.txt"
+
+          find "$PBRP" \
+            -type f \
+            \( \
+              -path '*/linkerconfig/*' \
+              -o -name 'ld.config.txt' \
+            \) \
+            -printf '%P\n' \
+            | sort \
+            > "$WORK/pbrp_linkerconfig.txt"
+
+          echo "--- STOCK LINKERCONFIG ---"
+          cat "$WORK/stock_linkerconfig.txt" || true
+
+          echo
+          echo "--- PBRP LINKERCONFIG ---"
+          cat "$WORK/pbrp_linkerconfig.txt" || true
+
+          echo
+          echo "--- STOCK ld.config.txt ---"
+
+          if [ -f "$STOCK/linkerconfig/ld.config.txt" ]; then
+            sed -n '1,260p' \
+              "$STOCK/linkerconfig/ld.config.txt"
+          else
+            echo "STOCK: ld.config.txt missing"
+          fi
+
+          echo
+          echo "--- PBRP ld.config.txt ---"
+
+          if [ -f "$PBRP/linkerconfig/ld.config.txt" ]; then
+            sed -n '1,260p' \
+              "$PBRP/linkerconfig/ld.config.txt"
+          else
+            echo "PBRP: ld.config.txt missing"
+          fi
+
+          echo
+          echo "===== SELINUX FILES ====="
+
+          find "$STOCK" \
+            -type f \
+            \( \
+              -name '*file_contexts*' \
+              -o -name '*property_contexts*' \
+              -o -name '*service_contexts*' \
+              -o -name '*seapp_contexts*' \
+              -o -name '*hwservice_contexts*' \
+              -o -name '*vndservice_contexts*' \
+              -o -name 'sepolicy' \
+            \) \
+            -printf '%P\n' \
+            | sort \
+            > "$WORK/stock_selinux.txt"
+
+          find "$PBRP" \
+            -type f \
+            \( \
+              -name '*file_contexts*' \
+              -o -name '*property_contexts*' \
+              -o -name '*service_contexts*' \
+              -o -name '*seapp_contexts*' \
+              -o -name '*hwservice_contexts*' \
+              -o -name '*vndservice_contexts*' \
+              -o -name 'sepolicy' \
+            \) \
+            -printf '%P\n' \
+            | sort \
+            > "$WORK/pbrp_selinux.txt"
+
+          echo "--- ONLY IN STOCK ---"
+
+          comm -23 \
+            "$WORK/stock_selinux.txt" \
+            "$WORK/pbrp_selinux.txt" \
+            || true
+
+          echo
+          echo "--- ONLY IN PBRP ---"
+
+          comm -13 \
+            "$WORK/stock_selinux.txt" \
+            "$WORK/pbrp_selinux.txt" \
+            || true
+
+          echo
+          echo "===== STOCK SELINUX CONTEXT FILES ====="
+
+          while read -r file
+          do
+            [ -z "$file" ] && continue
+
+            echo
+            echo "--- STOCK $file ---"
+
+            sed -n '1,80p' \
+              "$STOCK/$file" \
+              || true
+          done < "$WORK/stock_selinux.txt"
+
+          echo
+          echo "===== PBRP SELINUX CONTEXT FILES ====="
+
+          while read -r file
+          do
+            [ -z "$file" ] && continue
+
+            echo
+            echo "--- PBRP $file ---"
+
+            sed -n '1,80p' \
+              "$PBRP/$file" \
+              || true
+          done < "$WORK/pbrp_selinux.txt"
+
+          echo
+          echo "===== PROPERTY FILES ====="
+
+          find "$STOCK" \
+            -type f \
+            \( \
+              -name 'prop.default' \
+              -o -name '*.prop' \
+            \) \
+            -printf '%P\n' \
+            | sort \
+            > "$WORK/stock_props.txt"
+
+          find "$PBRP" \
+            -type f \
+            \( \
+              -name 'prop.default' \
+              -o -name '*.prop' \
+            \) \
+            -printf '%P\n' \
+            | sort \
+            > "$WORK/pbrp_props.txt"
+
+          echo "--- STOCK ---"
+          cat "$WORK/stock_props.txt" || true
+
+          echo
+          echo "--- PBRP ---"
+          cat "$WORK/pbrp_props.txt" || true
+
+          echo
+          echo "===== IMPORTANT STOCK PROPERTIES ====="
+
+          if [ -f "$STOCK/prop.default" ]; then
+            grep -E \
+              '^(ro\.build|ro\.product|ro\.boot|ro\.crypto|ro\.debuggable|ro\.secure|ro\.adb|ro\.fastboot|persist\.sys|sys\.usb)' \
+              "$STOCK/prop.default" \
+              | head -250 \
+              || true
+          fi
+
+          echo
+          echo "===== IMPORTANT PBRP PROPERTIES ====="
+
+          if [ -f "$PBRP/prop.default" ]; then
+            grep -E \
+              '^(ro\.build|ro\.product|ro\.boot|ro\.crypto|ro\.debuggable|ro\.secure|ro\.adb|ro\.fastboot|persist\.sys|sys\.usb)' \
+              "$PBRP/prop.default" \
+              | head -250 \
+              || true
+          fi
+
+          echo
+          echo "===== RECOVERY-SPECIFIC FILES ====="
+
+          find "$STOCK" \
+            -type f \
+            | grep -Ei \
+              'recovery|ramdisk|charger|health|boot|fstab|mt6789|xiaomi|miui' \
+            | sed 's#^#STOCK  #' \
+            | head -400 \
+            || true
+
+          echo
+
+          find "$PBRP" \
+            -type f \
+            | grep -Ei \
+              'recovery|ramdisk|charger|health|boot|fstab|mt6789|xiaomi|miui' \
+            | sed 's#^#PBRP   #' \
+            | head -400 \
+            || true
+
+          echo
+          echo "===== SYSTEM/BIN FILE LIST ====="
+
+          find "$STOCK/system/bin" \
+            -maxdepth 1 \
+            -type f \
+            -printf '%f\n' \
+            2>/dev/null \
+            | sort \
+            > "$WORK/stock_bin.txt"
+
+          find "$PBRP/system/bin" \
+            -maxdepth 1 \
+            -type f \
+            -printf '%f\n' \
+            2>/dev/null \
+            | sort \
+            > "$WORK/pbrp_bin.txt"
+
+          echo "--- ONLY IN STOCK ---"
+
+          comm -23 \
+            "$WORK/stock_bin.txt" \
+            "$WORK/pbrp_bin.txt" \
+            | head -300 \
+            || true
+
+          echo
+          echo "--- ONLY IN PBRP ---"
+
+          comm -13 \
+            "$WORK/stock_bin.txt" \
+            "$WORK/pbrp_bin.txt" \
+            | head -300 \
+            || true
+
+          echo
+          echo "===== SYSTEM/LIB64 FILE LIST ====="
+
+          find "$STOCK/system/lib64" \
+            -maxdepth 1 \
+            -type f \
+            -printf '%f\n' \
+            2>/dev/null \
+            | sort \
+            > "$WORK/stock_lib64_full.txt"
+
+          find "$PBRP/system/lib64" \
+            -maxdepth 1 \
+            -type f \
+            -printf '%f\n' \
+            2>/dev/null \
+            | sort \
+            > "$WORK/pbrp_lib64_full.txt"
+
+          echo "--- ONLY IN STOCK ---"
+
+          comm -23 \
+            "$WORK/stock_lib64_full.txt" \
+            "$WORK/pbrp_lib64_full.txt" \
+            | head -300 \
+            || true
+
+          echo
+          echo "--- ONLY IN PBRP ---"
+
+          comm -13 \
+            "$WORK/stock_lib64_full.txt" \
+            "$WORK/pbrp_lib64_full.txt" \
+            | head -300 \
+            || true
+
+          echo
+          echo "===== IMPORTANT BINARY HASHES ====="
+
+          for bin in \
+            system/bin/fastbootd \
+            system/bin/init \
+            system/bin/toybox \
+            system/bin/minadbd \
+            system/bin/recovery \
+            system/bin/twrp
+          do
+            echo
+            echo "--- $bin ---"
+
+            if [ -f "$STOCK/$bin" ]; then
+              sha256sum "$STOCK/$bin"
+            else
+              echo "STOCK: missing"
+            fi
+
+            if [ -f "$PBRP/$bin" ]; then
+              sha256sum "$PBRP/$bin"
+            else
+              echo "PBRP: missing"
+            fi
+          done
+
+          echo
+          echo "===== ELF DEPENDENCY CHECK ====="
+
+          for label in STOCK PBRP
+          do
+            if [ "$label" = "STOCK" ]; then
+              ROOT="$STOCK"
+            else
+              ROOT="$PBRP"
+            fi
+
+            echo
+            echo "--- $label ---"
+
+            for bin in \
+              system/bin/fastbootd \
+              system/bin/init \
+              system/bin/toybox \
+              system/bin/minadbd \
+              system/bin/recovery \
+              system/bin/twrp
+            do
+              if [ -f "$ROOT/$bin" ]; then
+                echo
+                echo "$bin"
+
+                readelf -d "$ROOT/$bin" 2>/dev/null \
+                  | grep 'Shared library:' \
+                  | sed 's/.*Shared library: \[\(.*\)\]/\1/' \
+                  | sort -u \
+                  || true
+              fi
+            done
+          done
+
+          echo
+          echo "===== SYMLINKS ====="
+
+          find "$STOCK" \
+            -type l \
+            -printf '%P -> %l\n' \
+            | sort \
+            > "$WORK/stock_symlinks.txt"
+
+          find "$PBRP" \
+            -type l \
+            -printf '%P -> %l\n' \
+            | sort \
+            > "$WORK/pbrp_symlinks.txt"
+
+          echo "--- ONLY IN STOCK ---"
+
+          comm -23 \
+            "$WORK/stock_symlinks.txt" \
+            "$WORK/pbrp_symlinks.txt" \
+            | head -300 \
+            || true
+
+          echo
+          echo "--- ONLY IN PBRP ---"
+
+          comm -13 \
+            "$WORK/stock_symlinks.txt" \
+            "$WORK/pbrp_symlinks.txt" \
+            | head -300 \
+            || true
+
+          echo
+          echo "===== DEEP COMPARISON COMPLETE ====="
+
       - name: Prepare artifacts
         run: |
           set -e
