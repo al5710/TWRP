@@ -100,8 +100,10 @@ jobs:
         run: |
           set -e
           cd "$GITHUB_WORKSPACE/pbrp"
+
           echo "===== DEVICE TREE ====="
           find device/xiaomi/spinel -maxdepth 3 -type f | sort
+
           echo
           echo "===== BOARD CONFIG ====="
           sed -n '1,240p' device/xiaomi/spinel/BoardConfig.mk
@@ -119,6 +121,7 @@ jobs:
           cd "$GITHUB_WORKSPACE/pbrp"
           source build/envsetup.sh
           lunch "pb_${DEVICE}-eng"
+
           echo "===== BUILD START ====="
           mka pbrp -j"$(nproc --all)"
 
@@ -126,9 +129,13 @@ jobs:
         run: |
           set -e
           cd "$GITHUB_WORKSPACE/pbrp"
+
+          PRODUCT="$GITHUB_WORKSPACE/pbrp/out/target/product/spinel"
+
           echo "===== SEARCHING FOR RECOVERY IMAGES ====="
-          find out/target/product/spinel \
-            -maxdepth 2 \
+
+          find "$PRODUCT" \
+            -maxdepth 3 \
             -type f \
             \( \
               -name "recovery.img" \
@@ -140,46 +147,100 @@ jobs:
 
           echo
           echo "===== PRODUCT OUTPUT ====="
-          ls -lah out/target/product/spinel/ 2>/dev/null || true
+          ls -lah "$PRODUCT" 2>/dev/null || true
 
-      - name: Repack stock vendor_boot with PBRP recovery
+      - name: Verify PBRP recovery ramdisk
         run: |
           set -e
 
-          PBRP="$GITHUB_WORKSPACE/pbrp/out/target/product/spinel/vendor_boot.img"
-          STOCK="$GITHUB_WORKSPACE/pbrp/device/xiaomi/spinel/prebuilt/vendor_boot.img"
-          SCRIPT="$GITHUB_WORKSPACE/pbrp/device/xiaomi/spinel/tools/replace_vendor_boot_recovery.py"
+          PRODUCT="$GITHUB_WORKSPACE/pbrp/out/target/product/spinel"
 
-          mkdir -p "$GITHUB_WORKSPACE/repacked"
+          echo "===== SEARCHING RECOVERY FILES ====="
 
-          test -f "$STOCK"
-          test -f "$PBRP"
+          find "$PRODUCT" \
+            -type f \
+            \( \
+              -path "*/recovery/*" \
+              -o -name "recovery" \
+              -o -name "pbrp" \
+              -o -name "init.recovery.mt6789.rc" \
+              -o -name "recovery.fstab" \
+            \) \
+            -print 2>/dev/null | sort || true
+
+          echo
+          echo "===== RECOVERY BINARY CANDIDATES ====="
+
+          find "$PRODUCT" \
+            -type f \
+            \( \
+              -name "recovery" \
+              -o -name "pbrp" \
+            \) \
+            -print 2>/dev/null | sort || true
+
+          echo
+          echo "===== RECOVERY ROOT DIRECTORIES ====="
+
+          find "$PRODUCT" \
+            -type d \
+            \( \
+              -name "recovery" \
+              -o -name "root" \
+            \) \
+            -print 2>/dev/null | sort || true
+
+      - name: Inspect PBRP vendor_boot
+        run: |
+          set -e
+
+          PRODUCT="$GITHUB_WORKSPACE/pbrp/out/target/product/spinel"
+          SCRIPT="$GITHUB_WORKSPACE/pbrp/device/xiaomi/spinel/tools/inspect_vendor_boot.py"
+
+          test -f "$PRODUCT/vendor_boot.img"
           test -f "$SCRIPT"
 
-          python3 "$SCRIPT" \
-            "$STOCK" \
-            "$PBRP" \
-            "$GITHUB_WORKSPACE/repacked/vendor_boot.img"
+          cd "$PRODUCT"
 
-          echo "===== FINAL IMAGE ====="
-          ls -lh "$GITHUB_WORKSPACE/repacked/vendor_boot.img"
+          python3 "$SCRIPT" "vendor_boot.img"
+
+          echo
+          echo "===== GENERATED RECOVERY FRAGMENT ====="
+
+          if [ -f "$PRODUCT/pbrp_recovery_fragment.bin" ]; then
+            ls -lh "$PRODUCT/pbrp_recovery_fragment.bin"
+            file "$PRODUCT/pbrp_recovery_fragment.bin" || true
+          else
+            echo "ERROR: pbrp_recovery_fragment.bin was not created"
+            exit 1
+          fi
 
       - name: Prepare artifacts
         run: |
           set -e
 
           ARTIFACTS="$GITHUB_WORKSPACE/artifacts"
-          FINAL="$GITHUB_WORKSPACE/repacked/vendor_boot.img"
           PRODUCT="$GITHUB_WORKSPACE/pbrp/out/target/product/spinel"
 
           mkdir -p "$ARTIFACTS"
 
-          echo "===== REPACKED VENDOR BOOT ====="
+          echo "===== PBRP GENERATED VENDOR BOOT ====="
 
-          test -f "$FINAL"
-          ls -lh "$FINAL"
+          test -f "$PRODUCT/vendor_boot.img"
+          ls -lh "$PRODUCT/vendor_boot.img"
 
-          cp "$FINAL" "$ARTIFACTS/vendor_boot.img"
+          cp "$PRODUCT/vendor_boot.img" \
+            "$ARTIFACTS/vendor_boot.img"
+
+          echo
+          echo "===== PBRP RECOVERY FRAGMENT ====="
+
+          test -f "$PRODUCT/pbrp_recovery_fragment.bin"
+
+          ls -lh "$PRODUCT/pbrp_recovery_fragment.bin"
+
+          cp "$PRODUCT/pbrp_recovery_fragment.bin" \
+            "$ARTIFACTS/pbrp_recovery_fragment.bin"
 
           echo
           echo "===== PBRP RECOVERY OUTPUT ====="
@@ -198,6 +259,7 @@ jobs:
           ls -lah "$ARTIFACTS"
 
           test -s "$ARTIFACTS/vendor_boot.img"
+          test -s "$ARTIFACTS/pbrp_recovery_fragment.bin"
 
       - name: Upload PBRP artifacts
         uses: actions/upload-artifact@v4
