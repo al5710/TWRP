@@ -24,7 +24,9 @@ jobs:
       - name: Install build dependencies
         run: |
           set -e
+
           sudo apt-get update
+
           sudo apt-get install -y \
             adb \
             aria2 \
@@ -32,6 +34,7 @@ jobs:
             bison \
             build-essential \
             ccache \
+            cpio \
             curl \
             flex \
             g++-multilib \
@@ -62,16 +65,25 @@ jobs:
       - name: Install repo tool
         run: |
           set -e
+
           mkdir -p "$HOME/bin"
-          curl -L https://storage.googleapis.com/git-repo-downloads/repo -o "$HOME/bin/repo"
+
+          curl -L \
+            https://storage.googleapis.com/git-repo-downloads/repo \
+            -o "$HOME/bin/repo"
+
           chmod +x "$HOME/bin/repo"
+
           "$HOME/bin/repo" --version
 
       - name: Initialize PBRP source
         run: |
           set -e
+
           mkdir -p "$GITHUB_WORKSPACE/pbrp"
+
           cd "$GITHUB_WORKSPACE/pbrp"
+
           "$HOME/bin/repo" init \
             --depth=1 \
             -u https://github.com/PitchBlackRecoveryProject/manifest_pb \
@@ -80,7 +92,9 @@ jobs:
       - name: Sync PBRP source
         run: |
           set -e
+
           cd "$GITHUB_WORKSPACE/pbrp"
+
           "$HOME/bin/repo" sync \
             -c \
             --no-clone-bundle \
@@ -90,8 +104,12 @@ jobs:
       - name: Install spinel device tree
         run: |
           set -e
+
           mkdir -p "$GITHUB_WORKSPACE/pbrp/device/xiaomi"
-          rm -rf "$GITHUB_WORKSPACE/pbrp/device/xiaomi/spinel"
+
+          rm -rf \
+            "$GITHUB_WORKSPACE/pbrp/device/xiaomi/spinel"
+
           cp -a \
             "$GITHUB_WORKSPACE/device_tree/device/xiaomi/spinel" \
             "$GITHUB_WORKSPACE/pbrp/device/xiaomi/spinel"
@@ -99,40 +117,56 @@ jobs:
       - name: Check device tree
         run: |
           set -e
+
           cd "$GITHUB_WORKSPACE/pbrp"
 
           echo "===== DEVICE TREE ====="
-          find device/xiaomi/spinel -maxdepth 3 -type f | sort
+
+          find device/xiaomi/spinel \
+            -maxdepth 3 \
+            -type f \
+            | sort
 
           echo
           echo "===== BOARD CONFIG ====="
-          sed -n '1,240p' device/xiaomi/spinel/BoardConfig.mk
+
+          sed -n '1,240p' \
+            device/xiaomi/spinel/BoardConfig.mk
 
       - name: Lunch PBRP spinel
         run: |
           set -e
+
           cd "$GITHUB_WORKSPACE/pbrp"
+
           source build/envsetup.sh
+
           lunch "pb_${DEVICE}-eng"
 
       - name: Build recovery target
         run: |
           set -e
+
           cd "$GITHUB_WORKSPACE/pbrp"
+
           source build/envsetup.sh
+
           lunch "pb_${DEVICE}-eng"
 
           echo "===== BUILD ENVIRONMENT ====="
+
           echo "TARGET_PRODUCT=$TARGET_PRODUCT"
           echo "TARGET_DEVICE=$TARGET_DEVICE"
           echo "OUT=$OUT"
 
           echo
           echo "===== BUILD RECOVERY ====="
+
           m recovery -j"$(nproc --all)"
 
           echo
           echo "===== BUILD VENDOR BOOT ====="
+
           m vendorbootimage -j"$(nproc --all)"
 
           echo
@@ -153,7 +187,11 @@ jobs:
           echo "===== CHECK RECOVERY ROOT ====="
 
           if [ -d "$PRODUCT/recovery/root" ]; then
-            find "$PRODUCT/recovery/root" -maxdepth 4 -type f | sort | head -300
+            find "$PRODUCT/recovery/root" \
+              -maxdepth 4 \
+              -type f \
+              | sort \
+              | head -300
           else
             echo "WARNING: recovery/root does not exist"
           fi
@@ -161,6 +199,7 @@ jobs:
       - name: Check build output
         run: |
           set -e
+
           cd "$GITHUB_WORKSPACE/pbrp"
 
           PRODUCT="$GITHUB_WORKSPACE/pbrp/out/target/product/spinel"
@@ -180,6 +219,7 @@ jobs:
 
           echo
           echo "===== PRODUCT OUTPUT ====="
+
           ls -lah "$PRODUCT" 2>/dev/null || true
 
       - name: Verify PBRP recovery ramdisk
@@ -199,7 +239,8 @@ jobs:
               -o -name "init.recovery.mt6789.rc" \
               -o -name "recovery.fstab" \
             \) \
-            -print 2>/dev/null | sort || true
+            -print 2>/dev/null \
+            | sort || true
 
           echo
           echo "===== RECOVERY BINARY CANDIDATES ====="
@@ -210,7 +251,8 @@ jobs:
               -name "recovery" \
               -o -name "pbrp" \
             \) \
-            -print 2>/dev/null | sort || true
+            -print 2>/dev/null \
+            | sort || true
 
           echo
           echo "===== RECOVERY ROOT DIRECTORIES ====="
@@ -221,7 +263,8 @@ jobs:
               -name "recovery" \
               -o -name "root" \
             \) \
-            -print 2>/dev/null | sort || true
+            -print 2>/dev/null \
+            | sort || true
 
       - name: Check recovery build configuration
         run: |
@@ -233,8 +276,8 @@ jobs:
 
           grep -RniE \
             "TW_EXCLUDE|TW_INCLUDE|TARGET_RECOVERY|RECOVERY_BINARY|recovery.*binary|LOCAL_MODULE.*recovery|LOCAL_MODULE.*twrp|LOCAL_MODULE.*pbrp" \
-            device vendor bootable system 2>/dev/null | \
-            head -300 || true
+            device vendor bootable system 2>/dev/null \
+            | head -300 || true
 
           echo
           echo "===== RECOVERY BUILD TARGETS ====="
@@ -246,9 +289,9 @@ jobs:
               -o -name "Android.mk" \
               -o -name "*.mk" \
             \) \
-            -print 2>/dev/null | \
-            grep -Ei "recovery|twrp|pitchblack|pbrp" | \
-            head -200 || true
+            -print 2>/dev/null \
+            | grep -Ei "recovery|twrp|pitchblack|pbrp" \
+            | head -200 || true
 
       - name: Find PBRP recovery binaries
         run: |
@@ -266,7 +309,8 @@ jobs:
               -o -name "pbrp" \
               -o -name "recovery_ramdisk*" \
             \) \
-            -print 2>/dev/null | sort || true
+            -print 2>/dev/null \
+            | sort || true
 
           echo
           echo "===== POSSIBLE RECOVERY EXECUTABLES ====="
@@ -274,15 +318,18 @@ jobs:
           find out \
             -type f \
             -path "*/bin/*" \
-            -print 2>/dev/null | \
-            grep -E '/(recovery|twrp|pbrp)$' || true
+            -print 2>/dev/null \
+            | grep -E '/(recovery|twrp|pbrp)$' \
+            || true
 
           echo
           echo "===== RECOVERY ROOT SIZE ====="
 
           du -ah \
             out/target/product/spinel/recovery/root \
-            2>/dev/null | tail -30 || true
+            2>/dev/null \
+            | tail -30 \
+            || true
 
       - name: Verify PBRP recovery runtime
         run: |
@@ -346,7 +393,9 @@ jobs:
           echo
           echo "===== RECOVERY ROOT FILE COUNT ====="
 
-          find "$ROOT" -type f | wc -l
+          find "$ROOT" \
+            -type f \
+            | wc -l
 
           echo
           echo "===== RECOVERY BINARIES ====="
@@ -354,7 +403,10 @@ jobs:
           find "$ROOT/system/bin" \
             -maxdepth 1 \
             -type f \
-            -printf "%f\n" 2>/dev/null | sort | head -200
+            -printf "%f\n" \
+            2>/dev/null \
+            | sort \
+            | head -200
 
           echo
           echo "===== RECOVERY RUNTIME CHECK: OK ====="
@@ -370,6 +422,8 @@ jobs:
           test -f "$SCRIPT"
 
           cd "$PRODUCT"
+
+          echo "===== PBRP GENERATED VENDOR_BOOT ====="
 
           python3 "$SCRIPT" "vendor_boot.img"
 
@@ -436,6 +490,7 @@ jobs:
 
           echo
           echo "===== FINAL SIZE ====="
+
           stat -c '%s bytes' vendor_boot.img
 
           test "$(stat -c '%s' vendor_boot.img)" -eq 67108864
@@ -443,9 +498,107 @@ jobs:
           echo
           echo "===== FINAL VENDOR_BOOT CHECK: OK ====="
 
-          echo "===== FINAL STOCK-BASED VENDOR_BOOT ====="
+      - name: Verify PBRP recovery fragment contents
+        run: |
+          set -e
 
-          python3 "$SCRIPT" "vendor_boot.img"
+          PRODUCT="$GITHUB_WORKSPACE/pbrp/out/target/product/spinel"
+          FRAGMENT="$PRODUCT/pbrp_recovery_fragment.bin"
+
+          test -s "$FRAGMENT"
+
+          echo "===== PBRP RECOVERY FRAGMENT ====="
+
+          ls -lh "$FRAGMENT"
+
+          echo
+          echo "===== FILE TYPE ====="
+
+          file "$FRAGMENT"
+
+          echo
+          echo "===== LZ4 HEADER ====="
+
+          xxd -l 16 "$FRAGMENT"
+
+          echo
+          echo "===== DECOMPRESS RECOVERY ====="
+
+          mkdir -p "$PRODUCT/recovery_fragment_check"
+
+          lz4 \
+            -d \
+            "$FRAGMENT" \
+            "$PRODUCT/recovery_fragment_check/recovery.cpio"
+
+          test -s \
+            "$PRODUCT/recovery_fragment_check/recovery.cpio"
+
+          echo
+          echo "===== CPIO TYPE ====="
+
+          file \
+            "$PRODUCT/recovery_fragment_check/recovery.cpio"
+
+          echo
+          echo "===== EXTRACT RECOVERY ====="
+
+          mkdir -p \
+            "$PRODUCT/recovery_fragment_check/root"
+
+          cd "$PRODUCT/recovery_fragment_check/root"
+
+          cpio \
+            -idm \
+            --no-absolute-filenames \
+            < "$PRODUCT/recovery_fragment_check/recovery.cpio"
+
+          echo
+          echo "===== REQUIRED RECOVERY FILES ====="
+
+          for file in \
+            "system/bin/recovery" \
+            "system/bin/twrp" \
+            "system/bin/init" \
+            "system/bin/toybox" \
+            "system/bin/minadbd" \
+            "system/bin/fastbootd" \
+            "system/etc/recovery.fstab" \
+            "init.recovery.mt6789.rc"
+          do
+            if [ -f "$file" ]; then
+              ls -lh "$file"
+            else
+              echo "ERROR: missing $file"
+              exit 1
+            fi
+          done
+
+          echo
+          echo "===== RECOVERY EXECUTABLES ====="
+
+          file \
+            system/bin/recovery \
+            system/bin/twrp \
+            system/bin/init \
+            system/bin/toybox \
+            system/bin/minadbd \
+            system/bin/fastbootd
+
+          echo
+          echo "===== RECOVERY FILE COUNT ====="
+
+          find . \
+            -type f \
+            | wc -l
+
+          echo
+          echo "===== RECOVERY SIZE ====="
+
+          du -sh .
+
+          echo
+          echo "===== PBRP RECOVERY FRAGMENT CHECK: OK ====="
 
       - name: Prepare artifacts
         run: |
@@ -459,9 +612,11 @@ jobs:
           echo "===== PBRP GENERATED VENDOR BOOT ====="
 
           test -f "$PRODUCT/vendor_boot.img"
+
           ls -lh "$PRODUCT/vendor_boot.img"
 
-          cp "$PRODUCT/vendor_boot.img" \
+          cp \
+            "$PRODUCT/vendor_boot.img" \
             "$ARTIFACTS/vendor_boot.img"
 
           echo
@@ -471,7 +626,8 @@ jobs:
 
           ls -lh "$PRODUCT/pbrp_recovery_fragment.bin"
 
-          cp "$PRODUCT/pbrp_recovery_fragment.bin" \
+          cp \
+            "$PRODUCT/pbrp_recovery_fragment.bin" \
             "$ARTIFACTS/pbrp_recovery_fragment.bin"
 
           echo
@@ -482,12 +638,15 @@ jobs:
             pbrp.img
           do
             if [ -f "$PRODUCT/$file" ]; then
-              cp "$PRODUCT/$file" "$ARTIFACTS/$file"
+              cp \
+                "$PRODUCT/$file" \
+                "$ARTIFACTS/$file"
             fi
           done
 
           echo
           echo "===== FINAL ARTIFACTS ====="
+
           ls -lah "$ARTIFACTS"
 
           test -s "$ARTIFACTS/vendor_boot.img"
