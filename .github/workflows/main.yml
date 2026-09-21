@@ -193,14 +193,14 @@ jobs:
           lunch "pb_${DEVICE}-eng"
 
       - name: Build PBRP
-        run: |
-          set -e
-
-          cd "$GITHUB_WORKSPACE/pbrp"
-
-          echo "===== BUILD START ====="
-
-          mka pbrp -j"$(nproc --all)"
+        - name: Build PBRP
+run: |
+set -e
+` cd "$GITHUB_WORKSPACE/pbrp"`
+source build/envsetup.sh
+lunch "pb_${DEVICE}-eng"
+` echo "===== BUILD START ====="`
+mka pbrp -j"$(nproc --all)"
 
       - name: Check build output
         run: |
