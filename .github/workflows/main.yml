@@ -755,6 +755,284 @@ jobs:
           echo
           echo "===== ANDROID RUNTIME CHECK COMPLETE ====="
 
+      - name: Compare stock Android 16 recovery runtime
+        run: |
+          set -e
+
+          PRODUCT="$GITHUB_WORKSPACE/pbrp/out/target/product/spinel"
+          STOCK_VENDOR_BOOT="$GITHUB_WORKSPACE/device_tree/device/xiaomi/spinel/prebuilt/vendor_boot.img"
+
+          WORK="$GITHUB_WORKSPACE/stock_runtime_check"
+          STOCK="$WORK/stock"
+          PBRP="$PRODUCT/recovery_fragment_check/root"
+
+          rm -rf "$WORK"
+          mkdir -p "$STOCK"
+
+          echo "===== STOCK ANDROID 16 RECOVERY RUNTIME ====="
+
+          test -f "$STOCK_VENDOR_BOOT"
+          test -f "$GITHUB_WORKSPACE/device_tree/device/xiaomi/spinel/tools/inspect_vendor_boot.py"
+
+          cd "$STOCK"
+
+          python3 \
+            "$GITHUB_WORKSPACE/device_tree/device/xiaomi/spinel/tools/inspect_vendor_boot.py" \
+            "$STOCK_VENDOR_BOOT"
+
+          mv pbrp_recovery_fragment.bin stock_recovery_fragment.bin
+
+          echo
+          echo "===== STOCK RECOVERY FRAGMENT ====="
+
+          file stock_recovery_fragment.bin
+          ls -lh stock_recovery_fragment.bin
+
+          echo
+          echo "===== DECOMPRESS STOCK RECOVERY ====="
+
+          mkdir -p "$STOCK/root"
+
+          lz4 -d \
+            stock_recovery_fragment.bin \
+            stock_recovery.cpio
+
+          file stock_recovery.cpio
+          ls -lh stock_recovery.cpio
+
+          echo
+          echo "===== EXTRACT STOCK RECOVERY ====="
+
+          cd "$STOCK/root"
+
+          cpio -idmv \
+            < "$STOCK/stock_recovery.cpio" \
+            > "$WORK/cpio_extract.log" \
+            2>&1
+
+          echo "Stock recovery files:"
+          find . -type f | sort | head -300
+
+          echo
+          echo "===== STOCK CORE BINARIES ====="
+
+          for bin in \
+            system/bin/recovery \
+            system/bin/twrp \
+            system/bin/init \
+            system/bin/toybox \
+            system/bin/minadbd \
+            system/bin/fastbootd \
+            system/bin/linker64
+          do
+            if [ -f "$STOCK/root/$bin" ]; then
+              echo "OK   $bin"
+              file "$STOCK/root/$bin"
+              ls -lh "$STOCK/root/$bin"
+            else
+              echo "MISS $bin"
+            fi
+          done
+
+          echo
+          echo "===== STOCK PROPERTIES ====="
+
+          for prop in \
+            "$STOCK/root/prop.default" \
+            "$STOCK/root/system/build.prop"
+          do
+            if [ -f "$prop" ]; then
+              echo
+              echo "--- $prop ---"
+
+              grep -E \
+                '^(ro.build.version.sdk|ro.build.version.release|ro.build.version.codename|ro.product.first_api_level|ro.product.build.version.sdk)=' \
+                "$prop" \
+                || true
+            fi
+          done
+
+          echo
+          echo "===== STOCK LIBRARIES ====="
+
+          if [ -d "$STOCK/root/system/lib64" ]; then
+            find "$STOCK/root/system/lib64" \
+              -maxdepth 1 \
+              -type f \
+              -printf '%f\n' \
+              | sort \
+              > "$WORK/stock_lib64.txt"
+
+            wc -l "$WORK/stock_lib64.txt"
+            head -300 "$WORK/stock_lib64.txt"
+          else
+            echo "No stock system/lib64 in recovery ramdisk"
+          fi
+
+          echo
+          echo "===== PBRP CORE BINARIES ====="
+
+          for bin in \
+            system/bin/recovery \
+            system/bin/twrp \
+            system/bin/init \
+            system/bin/toybox \
+            system/bin/minadbd \
+            system/bin/fastbootd \
+            system/bin/linker64
+          do
+            if [ -f "$PBRP/$bin" ]; then
+              echo "OK   $bin"
+              file "$PBRP/$bin"
+              ls -lh "$PBRP/$bin"
+            else
+              echo "MISS $bin"
+            fi
+          done
+
+          echo
+          echo "===== PBRP LIBRARIES ====="
+
+          if [ -d "$PBRP/system/lib64" ]; then
+            find "$PBRP/system/lib64" \
+              -maxdepth 1 \
+              -type f \
+              -printf '%f\n' \
+              | sort \
+              > "$WORK/pbrp_lib64.txt"
+
+            wc -l "$WORK/pbrp_lib64.txt"
+          fi
+
+          echo
+          echo "===== LIBRARY DIFFERENCES ====="
+
+          if [ -f "$WORK/stock_lib64.txt" ] && \
+             [ -f "$WORK/pbrp_lib64.txt" ]; then
+
+            echo
+            echo "--- ONLY IN STOCK ---"
+
+            comm -23 \
+              "$WORK/stock_lib64.txt" \
+              "$WORK/pbrp_lib64.txt" \
+              | head -200 \
+              || true
+
+            echo
+            echo "--- ONLY IN PBRP ---"
+
+            comm -13 \
+              "$WORK/stock_lib64.txt" \
+              "$WORK/pbrp_lib64.txt" \
+              | head -200 \
+              || true
+          fi
+
+          echo
+          echo "===== LINKER CHECK ====="
+
+          if [ -f "$STOCK/root/system/bin/linker64" ]; then
+            echo "STOCK linker64:"
+            file "$STOCK/root/system/bin/linker64"
+
+            readelf -l "$STOCK/root/system/bin/linker64" 2>/dev/null \
+              | grep -E \
+                'Requesting program interpreter|INTERP' \
+              || true
+          else
+            echo "STOCK recovery does not contain system/bin/linker64"
+          fi
+
+          if [ -f "$PBRP/system/bin/linker64" ]; then
+            echo
+            echo "PBRP linker64:"
+            file "$PBRP/system/bin/linker64"
+
+            readelf -l "$PBRP/system/bin/linker64" 2>/dev/null \
+              | grep -E \
+                'Requesting program interpreter|INTERP' \
+              || true
+          else
+            echo
+            echo "PBRP linker64: MISSING"
+          fi
+
+          echo
+          echo "===== RECOVERY ELF INTERPRETER ====="
+
+          for label in STOCK PBRP
+          do
+            if [ "$label" = "STOCK" ]; then
+              ROOT="$STOCK/root"
+            else
+              ROOT="$PBRP"
+            fi
+
+            echo
+            echo "--- $label ---"
+
+            for bin in \
+              system/bin/recovery \
+              system/bin/twrp \
+              system/bin/init \
+              system/bin/toybox \
+              system/bin/minadbd \
+              system/bin/fastbootd
+            do
+              if [ -f "$ROOT/$bin" ]; then
+                echo "$bin:"
+
+                readelf -l "$ROOT/$bin" 2>/dev/null \
+                  | grep -E \
+                    'Requesting program interpreter|INTERP' \
+                  || true
+              fi
+            done
+          done
+
+          echo
+          echo "===== STOCK VS PBRP REQUIRED FILES ====="
+
+          REQUIRED_FILES="
+          system/bin/recovery
+          system/bin/twrp
+          system/bin/init
+          system/bin/toybox
+          system/bin/minadbd
+          system/bin/fastbootd
+          system/bin/linker64
+          system/lib64/libc.so
+          system/lib64/libm.so
+          system/lib64/libdl.so
+          system/lib64/liblog.so
+          system/lib64/libbase.so
+          system/lib64/libselinux.so
+          system/lib64/libcrypto.so
+          system/lib64/libz.so
+          system/lib64/libutils.so
+          system/lib64/libcutils.so
+          "
+
+          printf '%s\n' "$REQUIRED_FILES" \
+            | sed '/^[[:space:]]*$/d' \
+            | while read -r file
+          do
+            stock_status="MISS"
+            pbrp_status="MISS"
+
+            [ -f "$STOCK/root/$file" ] && stock_status="OK"
+            [ -f "$PBRP/$file" ] && pbrp_status="OK"
+
+            printf '%-45s STOCK=%-4s PBRP=%-4s\n' \
+              "$file" \
+              "$stock_status" \
+              "$pbrp_status"
+          done
+
+          echo
+          echo "===== COMPARISON COMPLETE ====="
+
       - name: Prepare artifacts
         run: |
           set -e
