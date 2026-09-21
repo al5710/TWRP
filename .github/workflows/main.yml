@@ -192,8 +192,7 @@ jobs:
 
           lunch "pb_${DEVICE}-eng"
 
-      - name: Build PBRP
-        - name: Build PBRP
+              - name: Build PBRP
 run: |
 set -e
 ` cd "$GITHUB_WORKSPACE/pbrp"`
