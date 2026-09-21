@@ -190,7 +190,7 @@ jobs:
             \) \
             -print 2>/dev/null | sort || true
 
-             - name: Find PBRP recovery binaries
+      - name: Find PBRP recovery binaries
         run: |
           set -e
 
