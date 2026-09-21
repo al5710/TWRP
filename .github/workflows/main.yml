@@ -190,6 +190,33 @@ jobs:
             \) \
             -print 2>/dev/null | sort || true
 
+      - name: Check recovery build configuration
+        run: |
+          set -e
+
+          cd "$GITHUB_WORKSPACE/pbrp"
+
+          echo "===== RECOVERY CONFIG REFERENCES ====="
+
+          grep -RniE \
+            "TW_EXCLUDE|TW_INCLUDE|TARGET_RECOVERY|RECOVERY_BINARY|recovery.*binary|LOCAL_MODULE.*recovery|LOCAL_MODULE.*twrp|LOCAL_MODULE.*pbrp" \
+            device vendor bootable system 2>/dev/null | \
+            head -300 || true
+
+          echo
+          echo "===== RECOVERY BUILD TARGETS ====="
+
+          find bootable system vendor \
+            -type f \
+            \( \
+              -name "Android.bp" \
+              -o -name "Android.mk" \
+              -o -name "*.mk" \
+            \) \
+            -print 2>/dev/null | \
+            grep -Ei "recovery|twrp|pitchblack|pbrp" | \
+            head -200 || true
+
       - name: Find PBRP recovery binaries
         run: |
           set -e
