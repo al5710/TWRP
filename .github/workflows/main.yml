@@ -9,7 +9,7 @@ on:
 env:
   DEVICE: spinel
   PBRP_BRANCH: android-12.1
-  USE_CCACHE: 1
+  USE_CCACHE: 0
 
 jobs:
   build:
@@ -105,14 +105,6 @@ jobs:
           echo
           echo "===== BOARD CONFIG ====="
           sed -n '1,240p' device/xiaomi/spinel/BoardConfig.mk
-
-      - name: Configure ccache
-        run: |
-          set -e
-          ccache --max-size=10G
-          echo "USE_CCACHE=$USE_CCACHE" >> "$GITHUB_ENV"
-          echo "CCACHE_EXEC=$(which ccache)" >> "$GITHUB_ENV"
-          ccache -s
 
       - name: Lunch PBRP spinel
         run: |
