@@ -132,6 +132,10 @@ jobs:
           m recovery -j"$(nproc --all)"
 
           echo
+          echo "===== BUILD VENDOR BOOT ====="
+          m vendorbootimage -j"$(nproc --all)"
+
+          echo
           echo "===== CHECK RECOVERY EXECUTABLE ====="
 
           PRODUCT="$GITHUB_WORKSPACE/pbrp/out/target/product/spinel"
